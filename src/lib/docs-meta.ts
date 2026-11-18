@@ -27,6 +27,33 @@ export const DOC_META: Record<DocKind, { title: string; plural: string; party: "
   stock_adjustment: { title: "Stock Adjustment", plural: "Stock Adjustments", party: null, blurb: "Physical count, damage, expiry, opening stock." },
 };
 
+/** Label for the secondary "extra" field each document type carries (list column + detail views). */
+export const DOC_EXTRA_LABEL: Partial<Record<DocKind, string>> = {
+  sales_order: "Salesperson",
+  sales_invoice: "Salesperson",
+  sales_return: "Invoice",
+  receipt: "Method",
+  purchase_order: "Warehouse",
+  grn: "Warehouse",
+  purchase_bill: "Bill no.",
+  supplier_payment: "Method",
+  stock_adjustment: "Reason",
+};
+
+/** What cancelling a submitted document undoes, in plain words (shown in the confirm popup and the banner). */
+export const CANCEL_EFFECT: Record<DocKind, string> = {
+  sales_order: "The order is withdrawn and the shop's credit used by undelivered goods is freed.",
+  sales_invoice: "The goods go back into stock and the shop no longer owes this amount.",
+  sales_return: "The returned goods leave stock again and the credit given to the shop is taken back.",
+  receipt: "The payment is removed from the shop's account and the invoices it paid become open again.",
+  purchase_order: "The order to the supplier is withdrawn.",
+  grn: "The received goods are taken out of stock.",
+  purchase_bill: "You no longer owe the supplier this amount.",
+  supplier_payment: "The payment is removed and the bills it paid become open again.",
+  stock_transfer: "The stock moves back to where it came from.",
+  stock_adjustment: "The stock change is reversed.",
+};
+
 export const isDocKind = (k: string): k is DocKind => (DOC_KINDS as readonly string[]).includes(k);
 
 export const docHref = (kind: DocKind, id?: number | string) => (id ? `/docs/${kind}/${id}` : `/docs/${kind}`);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
+import { Flash } from "@/components/Flash";
 import { Sidebar } from "@/components/Sidebar";
 import "./globals.css";
 
@@ -19,7 +20,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Suspense fallback={<aside className="w-60 shrink-0 bg-slate-900" />}>
           <Sidebar />
         </Suspense>
-        <main className="min-w-0 flex-1 px-4 py-5 md:px-8">{children}</main>
+        <main className="min-w-0 flex-1 px-4 py-5 md:px-8">
+          <Suspense fallback={null}>
+            <Flash />
+          </Suspense>
+          {children}
+        </main>
       </body>
     </html>
   );

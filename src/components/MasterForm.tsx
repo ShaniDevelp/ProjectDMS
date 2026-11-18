@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { saveMasterAction } from "@/app/actions";
 import type { MasterKind } from "@/lib/docs-meta";
+import { flashHref } from "./Flash";
 
 type Opt = { id: number; name: string };
 type FieldDef =
@@ -80,13 +81,19 @@ export function MasterForm({
   editId,
   territories,
   salespersons,
+  onSaved,
+  onCancel,
 }: {
   kind: MasterKind;
   initial: Record<string, unknown> | null;
   editId: number | null;
   territories: Opt[];
   salespersons: Opt[];
+  /** Popup mode: called with the saved row instead of navigating to the master list. */
+  onSaved?: (row: Record<string, unknown>) => void;
+  onCancel?: () => void;
 }) {
+  const popup = Boolean(onSaved);
   const router = useRouter();
   const defs = fields(kind, { territories, salespersons });
   const [v, setV] = useState<Record<string, unknown>>(() => {
@@ -102,21 +109,24 @@ export function MasterForm({
       setError(null);
       const res = await saveMasterAction(kind, v, editId ?? undefined);
       if (!res.ok) return setError(res.error);
-      router.push(`/masters/${kind}`);
+      if (onSaved) return onSaved(res.row ?? {});
+      const name = String(v.name ?? "").trim();
+      router.push(flashHref(`/masters/${kind}`, editId ? `${name} updated.` : `${name} added.`), { scroll: false });
       router.refresh();
       if (!editId) setV(() => Object.fromEntries(defs.map((f) => [f.k, DEFAULTS[f.k] ?? (f.type === "bool" ? false : "")])));
     });
 
   return (
     <form
-      className="space-y-3"
+      className={popup ? "grid gap-x-4 gap-y-3 sm:grid-cols-2" : "space-y-3"}
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         submit();
       }}
     >
       {defs.map((f) => (
-        <div key={f.k}>
+        <div key={f.k} className={popup && f.type === "bool" ? "sm:col-span-2" : undefined}>
           {f.type === "bool" ? (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={Boolean(v[f.k])} onChange={(e) => setV((s) => ({ ...s, [f.k]: e.target.checked }))} />
@@ -149,12 +159,17 @@ export function MasterForm({
           )}
         </div>
       ))}
-      {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-      <div className="flex gap-2">
+      {error && <div className={`rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 ${popup ? "sm:col-span-2" : ""}`}>{error}</div>}
+      <div className={`flex gap-2 ${popup ? "justify-end border-t border-slate-100 pt-3 sm:col-span-2" : ""}`}>
+        {onCancel && (
+          <button type="button" className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
         <button className="btn-primary" disabled={pending}>
-          {pending ? "Saving…" : editId ? "Save changes" : "Add"}
+          {pending ? "Saving…" : editId ? "Save changes" : popup ? "Save & select" : "Add"}
         </button>
-        {editId && (
+        {editId && !popup && (
           <button type="button" className="btn" onClick={() => router.push(`/masters/${kind}`)}>
             Cancel
           </button>

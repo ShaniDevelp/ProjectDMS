@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MasterForm } from "@/components/MasterForm";
+import { MasterRowDelete } from "@/components/MasterRowDelete";
 import { Badge, Card, Empty, Money, PageHeader } from "@/components/ui";
 import { fmtQty, isMasterKind, MASTER_TITLES, type MasterKind } from "@/lib/docs-meta";
 import { formOptions, mastersList } from "@/server/queries";
@@ -89,10 +90,13 @@ export default async function MastersPage({ params, searchParams }: PageProps<"/
                           {c.cell(r)}
                         </td>
                       ))}
-                      <td>
-                        <Link className="text-xs text-sky-700 hover:underline" href={`/masters/${kind}?edit=${r.id}`}>
-                          Edit
-                        </Link>
+                      <td className="whitespace-nowrap text-right">
+                        <span className="inline-flex items-center gap-1">
+                          <Link className="rounded-md px-2 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50" href={`/masters/${kind}?edit=${r.id}`}>
+                            Edit
+                          </Link>
+                          <MasterRowDelete kind={kind} id={Number(r.id)} name={String(r.name)} />
+                        </span>
                       </td>
                     </tr>
                   ))}

@@ -102,9 +102,23 @@ const SAVE: Record<MasterKind, (input: unknown, id?: number) => Promise<unknown>
   territories: masters.saveTerritory,
 };
 
-export async function saveMasterAction(kind: MasterKind, input: unknown, id?: number): Promise<ActionResult> {
+export async function saveMasterAction(
+  kind: MasterKind,
+  input: unknown,
+  id?: number,
+): Promise<{ ok: true; id?: number; row?: Record<string, unknown> } | { ok: false; error: string }> {
   try {
-    await SAVE[kind](input, id);
+    const row = (await SAVE[kind](input, id)) as Record<string, unknown> | undefined;
+    return { ok: true, id: row ? Number(row.id) : undefined, row: row ? JSON.parse(JSON.stringify(row)) : undefined };
+  } catch (e) {
+    const res = toError(e);
+    return res.ok ? { ok: false, error: "Unknown error" } : { ok: false, error: res.error };
+  }
+}
+
+export async function deleteMasterAction(kind: MasterKind, id: number): Promise<ActionResult> {
+  try {
+    await masters.deleteMaster(kind, id);
     return { ok: true };
   } catch (e) {
     return toError(e);

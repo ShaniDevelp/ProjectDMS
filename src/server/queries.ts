@@ -61,7 +61,8 @@ export function badgeFor(kind: DocKind, r: Row): Badge {
 
 const LIST_SQL: Record<DocKind, SQL> = {
   sales_order: sql`SELECT d.id, d.no, d.date::text, d.status, d.closed, d.total, c.name AS party, sp.name AS extra,
-      (SELECT sum(qty) FROM so_lines WHERE so_id = d.id) AS total_qty, (SELECT sum(least(invoiced_qty, qty)) FROM so_lines WHERE so_id = d.id) AS done_qty
+      (SELECT sum(qty) FROM so_lines WHERE so_id = d.id) AS total_qty, (SELECT sum(least(invoiced_qty, qty)) FROM so_lines WHERE so_id = d.id) AS done_qty,
+      (SELECT coalesce(sum(greatest(qty - invoiced_qty, 0) * rate), 0) FROM so_lines WHERE so_id = d.id) AS pending_amt
     FROM sales_orders d JOIN customers c ON c.id = d.customer_id LEFT JOIN salespersons sp ON sp.id = d.salesperson_id`,
   sales_invoice: sql`SELECT d.id, d.no, d.date::text, d.status, d.total, d.due_date::text, c.name AS party, sp.name AS extra,
       (SELECT coalesce(sum(amount),0) FROM party_ledger WHERE against_type='sales_invoice' AND against_id=d.id) AS open
@@ -71,10 +72,12 @@ const LIST_SQL: Record<DocKind, SQL> = {
   receipt: sql`SELECT d.id, d.no, d.date::text, d.status, d.amount AS total, c.name AS party, d.method AS extra
     FROM receipts d JOIN customers c ON c.id = d.customer_id`,
   purchase_order: sql`SELECT d.id, d.no, d.date::text, d.status, d.closed, d.total, s.name AS party, w.name AS extra,
-      (SELECT sum(qty) FROM po_lines WHERE po_id = d.id) AS total_qty, (SELECT sum(least(received_qty, qty)) FROM po_lines WHERE po_id = d.id) AS done_qty
+      (SELECT sum(qty) FROM po_lines WHERE po_id = d.id) AS total_qty, (SELECT sum(least(received_qty, qty)) FROM po_lines WHERE po_id = d.id) AS done_qty,
+      (SELECT coalesce(sum(greatest(qty - received_qty, 0) * rate), 0) FROM po_lines WHERE po_id = d.id) AS pending_amt
     FROM purchase_orders d JOIN suppliers s ON s.id = d.supplier_id JOIN warehouses w ON w.id = d.warehouse_id`,
   grn: sql`SELECT d.id, d.no, d.date::text, d.status, d.total, s.name AS party, w.name AS extra,
-      (SELECT sum(qty) FROM grn_lines WHERE grn_id = d.id) AS total_qty, (SELECT sum(least(billed_qty, qty)) FROM grn_lines WHERE grn_id = d.id) AS done_qty
+      (SELECT sum(qty) FROM grn_lines WHERE grn_id = d.id) AS total_qty, (SELECT sum(least(billed_qty, qty)) FROM grn_lines WHERE grn_id = d.id) AS done_qty,
+      (SELECT coalesce(sum(greatest(qty - billed_qty, 0) * rate), 0) FROM grn_lines WHERE grn_id = d.id) AS pending_amt
     FROM grns d JOIN suppliers s ON s.id = d.supplier_id JOIN warehouses w ON w.id = d.warehouse_id`,
   purchase_bill: sql`SELECT d.id, d.no, d.date::text, d.status, d.total, d.due_date::text, s.name AS party, d.supplier_bill_no AS extra,
       (SELECT coalesce(sum(amount),0) FROM party_ledger WHERE against_type='purchase_bill' AND against_id=d.id) AS open
@@ -88,7 +91,8 @@ const LIST_SQL: Record<DocKind, SQL> = {
 };
 
 export async function listDocs(kind: DocKind) {
-  const rows = await q(sql`SELECT * FROM (${LIST_SQL[kind]}) x ORDER BY x.id DESC LIMIT 300`);
+  const rows = await q(sql`SELECT x.*, (SELECT count(*)::int FROM attachments a WHERE a.doc_kind = ${kind} AND a.doc_id = x.id) AS files
+    FROM (${LIST_SQL[kind]}) x ORDER BY x.id DESC LIMIT 300`);
   return rows.map((r) => ({
     id: Number(r.id),
     no: String(r.no),
@@ -97,6 +101,13 @@ export async function listDocs(kind: DocKind) {
     extra: (r.extra as string | null) ?? null,
     total: r.total === null || r.total === undefined ? null : n(r.total),
     open: r.open === undefined ? null : n(r.open),
+    status: String(r.status),
+    closed: Boolean(r.closed),
+    dueDate: (r.due_date as string | null | undefined) ?? null,
+    totalQty: r.total_qty === undefined ? null : n(r.total_qty),
+    doneQty: r.done_qty === undefined ? null : n(r.done_qty),
+    pendingAmt: r.pending_amt === undefined ? null : n(r.pending_amt),
+    files: Number(r.files ?? 0),
     badge: badgeFor(kind, r),
   }));
 }
@@ -199,8 +210,10 @@ export async function formOptions() {
     q<{ id: number; code: string; name: string; pcs_per_carton: number; has_batch: boolean; buy_rate: string; sell_rate: string }>(
       sql`SELECT id, code, name, pcs_per_carton, has_batch, buy_rate, sell_rate FROM items WHERE active ORDER BY name`,
     ),
-    q<{ id: number; name: string; salesperson_id: number | null }>(
-      sql`SELECT id, name, salesperson_id FROM customers WHERE NOT blocked ORDER BY name`,
+    q<{ id: number; name: string; salesperson_id: number | null; credit_limit: string | null; credit_days: number; balance: string }>(
+      sql`SELECT c.id, c.name, c.salesperson_id, c.credit_limit, c.credit_days,
+            (SELECT coalesce(sum(amount), 0) FROM party_ledger WHERE party_type = 'customer' AND party_id = c.id) AS balance
+          FROM customers c WHERE NOT c.blocked ORDER BY c.name`,
     ),
     q<{ id: number; name: string }>(sql`SELECT id, name FROM suppliers ORDER BY name`),
     q<{ id: number; name: string; kind: string }>(sql`SELECT id, name, kind FROM warehouses WHERE active ORDER BY kind, name`),
@@ -210,7 +223,14 @@ export async function formOptions() {
   ]);
   return {
     items: items.map((i) => ({ ...i, buy_rate: n(i.buy_rate), sell_rate: n(i.sell_rate) })),
-    customers,
+    customers: customers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      salesperson_id: c.salesperson_id,
+      credit_limit: c.credit_limit === null ? null : n(c.credit_limit),
+      credit_days: Number(c.credit_days),
+      balance: n(c.balance),
+    })),
     suppliers,
     warehouses,
     salespersons,

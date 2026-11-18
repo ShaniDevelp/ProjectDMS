@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { customers, items, salespersons, suppliers, territories, warehouses } from "@/db/schema";
-import { m, r } from "./util";
+import { DomainError, m, r } from "./util";
 
 const optText = z
   .string()
@@ -112,4 +112,36 @@ export async function listMasters() {
     db.select().from(customers).orderBy(asc(customers.name)),
   ]);
   return { items: it, warehouses: wh, suppliers: sup, territories: ter, salespersons: sp, customers: cu };
+}
+
+const MASTER_TABLES = { customers, items, suppliers, warehouses, salespersons, territories } as const;
+
+/** What to suggest instead of deleting a record that is already in use. */
+const IN_USE_HINT: Record<keyof typeof MASTER_TABLES, string> = {
+  customers: "Tick “Blocked” on the customer instead.",
+  items: "Untick “Active” on the item instead.",
+  suppliers: "Keep it; it no longer needs to be used.",
+  warehouses: "Untick “Active” on the warehouse instead.",
+  salespersons: "Untick “Active” on the salesperson instead.",
+  territories: "Move its shops to another area first.",
+};
+
+/**
+ * Delete a master record. Records used by any document, ledger row or other master are
+ * protected by foreign keys, so history can never point at a missing customer/item.
+ */
+export async function deleteMaster(kind: keyof typeof MASTER_TABLES, id: number) {
+  const t = MASTER_TABLES[kind];
+  if (kind === "territories") {
+    const children = await db.select({ id: territories.id }).from(territories).where(eq(territories.parentId, id)).limit(1);
+    if (children.length) throw new DomainError("This area has sub-areas. Delete or move them first.");
+  }
+  try {
+    const res = await db.delete(t).where(eq(t.id, id)).returning({ id: t.id });
+    if (!res.length) throw new DomainError("Record not found. It may already be deleted.");
+  } catch (e) {
+    const code = (e as { cause?: { code?: string } })?.cause?.code ?? (e as { code?: string })?.code;
+    if (code === "23503") throw new DomainError(`It is already used in documents or other records, so it can’t be deleted. ${IN_USE_HINT[kind]}`);
+    throw e;
+  }
 }

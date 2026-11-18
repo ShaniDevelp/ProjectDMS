@@ -12,7 +12,10 @@ import {
   primaryKey,
   uniqueIndex,
   index,
+  customType,
 } from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 // numeric columns come back as strings; services convert with toNum().
 const money = (name: string) => numeric(name, { precision: 14, scale: 2 });
@@ -401,4 +404,22 @@ export const partyLedger = pgTable(
     index("party_ledger_against_idx").on(t.againstType, t.againstId),
     index("party_ledger_voucher_idx").on(t.voucherType, t.voucherId),
   ],
+);
+
+// ───────────────────────── attachments ─────────────────────────
+
+/** Proof files (payment slips, cheque photos, PDFs) attached to any document. Max 10 MB each. */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: serial("id").primaryKey(),
+    docKind: text("doc_kind").notNull(),
+    docId: integer("doc_id").notNull(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    size: integer("size").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("attachments_doc_idx").on(t.docKind, t.docId)],
 );
